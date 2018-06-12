@@ -199,6 +199,14 @@ OPTIONS:
     --no-framework
         Do not create the framework.
 
+    --universal
+        Create universal FAT binary.
+
+    --framework-header-root
+        Place headers in a 'boost' root directory in the framework rather than
+        directly in the 'Headers' directory.
+        Added for compatibility with projects that expect this structure.
+
     --clean
         Just clean up build artifacts, but don't actually build anything.
         (all other parameters are ignored)
@@ -245,7 +253,6 @@ unknownParameter()
     fi
     die
 }
-
 parseArgs()
 {
     while [ "$1" != "" ]; do
@@ -357,6 +364,10 @@ parseArgs()
                 fi
                 ;;
 
+            --universal)
+                UNIVERSAL=1
+                ;;
+
             --clean)
                 CLEAN=1
                 ;;
@@ -371,6 +382,10 @@ parseArgs()
 
             --no-framework)
                 NO_FRAMEWORK=1
+                ;;
+
+            --framework-header-root)
+                HEADER_ROOT=1
                 ;;
 
             -j | --threads)
@@ -841,6 +856,57 @@ scrunchAllLibsTogetherInOneLibPerPlatform()
     done
 }
 
+buildUniversal()
+{
+        echo "Creating universal library..."
+    if [[ -n $BUILD_IOS ]]; then
+        mkdir -p "$IOS_BUILD_DIR/universal"
+
+        for NAME in $BOOTSTRAP_LIBS; do
+            if [ "$NAME" == "test" ]; then
+                NAME="unit_test_framework"
+            fi
+
+            ARCH_FILES=""
+            for ARCH in ${IOS_ARCHS[@]}; do
+                ARCH_FILES+=" $IOS_BUILD_DIR/$ARCH/libboost_$NAME.a"
+            done
+            # Ideally IOS_ARCHS contains i386 and x86_64 and simulator build steps are not treated out of band
+            if [ -f $IOS_BUILD_DIR/i386/libboost_$NAME.a ]; then
+                ARCH_FILES+=" $IOS_BUILD_DIR/i386/libboost_$NAME.a"
+            fi
+            if [ -f $IOS_BUILD_DIR/x86_64/libboost_$NAME.a ]; then
+                ARCH_FILES+=" $IOS_BUILD_DIR/x86_64/libboost_$NAME.a"
+            fi
+            if [[ ${ARCH_FILES[@]} ]]; then
+                echo "... $NAME"
+                $IOS_ARM_DEV_CMD lipo -create $ARCH_FILES -o "$IOS_BUILD_DIR/universal/libboost_$NAME.a" || abort "Lipo $1 failed"
+            fi
+        done
+    fi
+    if [[ -n $BUILD_TVOS ]]; then
+        mkdir -p "$TVOS_BUILD_DIR/universal"
+
+        for NAME in $BOOTSTRAP_LIBS; do
+            if [ "$NAME" == "test" ]; then
+                NAME="unit_test_framework"
+            fi
+
+            ARCH_FILES=""
+            if [ -f $TVOS_BUILD_DIR/arm64/libboost_$NAME.a ]; then
+                ARCH_FILES+=" $TVOS_BUILD_DIR/arm64/libboost_$NAME.a"
+            fi
+            if [ -f $TVOS_BUILD_DIR/x86_64/libboost_$NAME.a ]; then
+                ARCH_FILES+=" $TVOS_BUILD_DIR/x86_64/libboost_$NAME.a"
+            fi
+            if [[ ${ARCH_FILES[@]} ]]; then
+                echo "... $NAME"
+                $TVOS_ARM_DEV_CMD lipo -create $ARCH_FILES -o "$TVOS_BUILD_DIR/universal/libboost_$NAME.a" || abort "Lipo $1 failed"
+            fi
+        done
+    fi
+}
+
 #===============================================================================
 buildFramework()
 {
@@ -860,17 +926,22 @@ buildFramework()
     echo "Framework: Building $FRAMEWORK_BUNDLE from $BUILDDIR..."
 
     rm -rf "$FRAMEWORK_BUNDLE"
+    if [[ -n $HEADER_ROOT ]]; then
+        FRAMEWORK_HEADERS="/Headers/boost/"
+    else
+        FRAMEWORK_HEADERS="/Headers/"
+    fi
 
     echo "Framework: Setting up directories..."
     mkdir -p "$FRAMEWORK_BUNDLE/Versions/$FRAMEWORK_VERSION/Resources"
-    mkdir -p "$FRAMEWORK_BUNDLE/Versions/$FRAMEWORK_VERSION/Headers"
+    mkdir -p "$FRAMEWORK_BUNDLE/Versions/$FRAMEWORK_VERSION/$FRAMEWORK_HEADERS"
     mkdir -p "$FRAMEWORK_BUNDLE/Versions/$FRAMEWORK_VERSION/Documentation"
 
     echo "Framework: Creating symlinks..."
-    ln -s "$FRAMEWORK_VERSION"               "$FRAMEWORK_BUNDLE/Versions/Current"
-    ln -s "Versions/Current/Headers"         "$FRAMEWORK_BUNDLE/Headers"
-    ln -s "Versions/Current/Resources"       "$FRAMEWORK_BUNDLE/Resources"
-    ln -s "Versions/Current/Documentation"   "$FRAMEWORK_BUNDLE/Documentation"
+    ln -s "$FRAMEWORK_VERSION" "$FRAMEWORK_BUNDLE/Versions/Current"
+    ln -s "Versions/Current/Headers" "$FRAMEWORK_BUNDLE/Headers"
+    ln -s "Versions/Current/Resources" "$FRAMEWORK_BUNDLE/Resources"
+    ln -s "Versions/Current/Documentation" "$FRAMEWORK_BUNDLE/Documentation"
     ln -s "Versions/Current/$FRAMEWORK_NAME" "$FRAMEWORK_BUNDLE/$FRAMEWORK_NAME"
 
     FRAMEWORK_INSTALL_NAME="$FRAMEWORK_BUNDLE/Versions/$FRAMEWORK_VERSION/$FRAMEWORK_NAME"
@@ -890,8 +961,7 @@ buildFramework()
     fi
 
     echo "Framework: Copying includes..."
-    cd "$PREFIXDIR/include/boost"
-    cp -r * "$FRAMEWORK_BUNDLE/Headers/"
+    cp -r "$PREFIXDIR/include/boost/"* "$FRAMEWORK_BUNDLE/$FRAMEWORK_HEADERS"
 
     echo "Framework: Creating plist..."
     cat > "$FRAMEWORK_BUNDLE/Resources/Info.plist" <<EOF
@@ -1034,6 +1104,9 @@ if [[ -n $BUILD_MACOS ]]; then
 fi
 
 scrunchAllLibsTogetherInOneLibPerPlatform
+if [[ -n $UNIVERSAL ]]; then
+    buildUniversal
+fi
 
 if [[ -z $NO_FRAMEWORK ]]; then
     if [[ -n $BUILD_IOS ]]; then

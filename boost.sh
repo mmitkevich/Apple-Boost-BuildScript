@@ -29,9 +29,9 @@
 #
 #===============================================================================
 
-BOOST_VERSION=1.64.0
+BOOST_VERSION=1.66.0
 
-BOOST_LIBS="atomic chrono date_time exception filesystem program_options random signals system thread test"
+BOOST_LIBS="atomic chrono date_time exception filesystem program_options random signals system thread test regex serialization locale"
 ALL_BOOST_LIBS=\
 "atomic chrono container context coroutine coroutine2 date_time exception fiber filesystem graph"\
 " graph_parallel iostreams locale log math metaparse mpi program_options python random regex"\
@@ -495,8 +495,8 @@ updateBoost()
     if [[ "$1" == "iOS" ]]; then
         cat > "$BOOST_SRC/tools/build/src/user-config.jam" <<EOF
 using darwin : ${IOS_SDK_VERSION}~iphone
-: $COMPILER $IOS_ARCH_FLAGS $EXTRA_IOS_FLAGS
-: <striper> <root>$XCODE_ROOT/Platforms/iPhoneOS.platform/Developer
+: $COMPILER $IOS_ARCH_FLAGS $EXTRA_IOS_FLAGS -isysroot $XCODE_ROOT/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS${IOS_SDK_VERSION}.sdk -I$XCODE_ROOT/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS${IOS_SDK_VERSION}.sdk/usr/include/ -L$XCODE_ROOT/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS${IOS_SDK_VERSION}.sdk/usr/lib/
+: <striper> <root>$XCODE_ROOT/Platforms/iPhoneOS.platform/Developer/
 : <architecture>arm <target-os>iphone
 ;
 using darwin : ${IOS_SDK_VERSION}~iphonesim
